@@ -82,14 +82,7 @@ func dbAddUser(db *mgo.Session, user User) error {
 		return errors.New("409")
 	}
 	return c.Insert(user)
-	// err := r.C.Insert(user)
-	// if err != nil {
-	//   if !mgo.IsDup(err) {
-	// 	// TODO look for that specific user in the database and update it
-	// 	// or inform the user that the username/email already exists
-	//   }
-	//   // TODO
-	// }
+	// TODO: look into mgo.IsDup(err) func
 }
 
 func dbGetUser(db *mgo.Session, user string) (User, error) {
@@ -99,6 +92,36 @@ func dbGetUser(db *mgo.Session, user string) (User, error) {
 		return data, err
 	}
 	return data, nil
+}
+
+func dbAddMessage(db *mgo.Session, message Message) error {
+	c := db.DB("chatty").C("messages")
+	return c.Insert(message)
+}
+
+func dbGetMessage(db *mgo.Session, id bson.ObjectId) (Message, error) {
+	data := Message{}
+	err := db.DB("chatty").C("messages").FindId(id).One(&data)
+	if err != nil {
+		return data, err
+	}
+	return data, nil
+}
+
+func dbDecreaseBudget(db *mgo.Session, sender User) error {
+	userCheck := User{}
+	budget := mgo.Change{
+		Update:    bson.M{"$inc": bson.M{"budget": -1}, "$set": bson.M{"updatedAt": time.Now()}},
+		ReturnNew: true,
+	}
+	_, err := db.DB("chatty").C("users").Find(bson.M{"username": sender.Username}).Apply(budget, &userCheck)
+	if err != nil {
+		return err
+	}
+	if sender.Budget-1 != userCheck.Budget {
+		return errors.New("budget discrepancy")
+	}
+	return nil
 }
 
 func dbItemsInCollection(db *mgo.Session, collection string) (interface{}, error) {
@@ -142,8 +165,17 @@ func NewController(db *mgo.Session) *Controller {
 	}
 }
 
-func (c *Controller) ListUsers(response http.ResponseWriter, request *http.Request) {
+func (c *Controller) ListAllUsers(response http.ResponseWriter, request *http.Request) {
 	items, err := dbItemsInCollection(c.DB, "users")
+	if err != nil {
+		log.Println(err)
+	}
+	response.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(response).Encode(items)
+}
+
+func (c *Controller) ListMessages(response http.ResponseWriter, request *http.Request) {
+	items, err := dbItemsInCollection(c.DB, "messages")
 	if err != nil {
 		log.Println(err)
 	}
@@ -162,23 +194,23 @@ func (c *Controller) NewUser(response http.ResponseWriter, request *http.Request
 	err := decoder.Decode(&newUser)
 	if err != nil {
 		response.Header().Set("Content-Type", "application/problem+json")
-		http.Error(response, "The user object is bad formatted, missing attributes or has invalid values. 1", http.StatusBadRequest)
+		http.Error(response, "The user object is bad formatted, missing attributes or has invalid values.", http.StatusBadRequest)
 		log.Println("JSON decoding error.", err)
 		return
 	}
 	r, _ := regexp.Compile(`^[a-z][a-z_\.\-0-9]*$`)
 	if !r.MatchString(newUser.Username) {
 		response.Header().Set("Content-Type", "application/problem+json")
-		http.Error(response, "The user object is bad formatted, missing attributes or has invalid values. 2", http.StatusBadRequest)
+		http.Error(response, "The user object is bad formatted, missing attributes or has invalid values.", http.StatusBadRequest)
 		log.Println("Regexp error.", err)
 		return
 	}
-	// now, err := time.Parse(time.RFC3339, time.Now())
-	// if err != nil {
-	// 	response.Header().Set("Content-Type", "application/problem+json")
-	// 	http.Error(response, "Unexpected Error.", http.StatusInternalServerError)
-	// 	log.Fatal(err)
-	// }
+	if newUser.Name == "" {
+		response.Header().Set("Content-Type", "application/problem+json")
+		http.Error(response, "The user object is bad formatted, missing attributes or has invalid values.", http.StatusBadRequest)
+		log.Println("Empty name field.", err)
+		return
+	}
 	newUser.ID = bson.NewObjectId()
 	newUser.Budget = 10
 	newUser.CreatedAt = time.Now()
@@ -187,11 +219,11 @@ func (c *Controller) NewUser(response http.ResponseWriter, request *http.Request
 	if err != nil {
 		response.Header().Set("Content-Type", "application/problem+json")
 		if err.Error() == "409" {
-			http.Error(response, "The username is already taken by another user. 3", http.StatusConflict)
+			http.Error(response, "The username is already taken by another user.", http.StatusConflict)
 			log.Println("Username already taken.", err)
 			return
 		} else {
-			http.Error(response, "Unexpected Error. 4", http.StatusInternalServerError)
+			http.Error(response, "Unexpected Error.", http.StatusInternalServerError)
 			log.Println("Unknown error in dbAddUser call.", err)
 			return
 		}
@@ -199,11 +231,12 @@ func (c *Controller) NewUser(response http.ResponseWriter, request *http.Request
 	check, err := dbGetUser(c.DB, newUser.Username)
 	if err != nil {
 		response.Header().Set("Content-Type", "application/problem+json")
-		http.Error(response, "Unexpected Error. 5", http.StatusInternalServerError)
+		http.Error(response, "Unexpected Error.", http.StatusInternalServerError)
 		log.Println("Error in dbGetUser.", err)
 		return
 	}
 	response.Header().Set("Content-Type", "application/json")
+	response.WriteHeader(http.StatusCreated)
 	json.NewEncoder(response).Encode(check)
 }
 
@@ -233,6 +266,93 @@ func (c *Controller) GetUser(response http.ResponseWriter, request *http.Request
 }
 
 func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Request) {
+	if request.Method != "POST" {
+		http.Error(response, "Please use a POST request.", http.StatusBadRequest)
+		log.Println("Non-POST /users request.")
+		return
+	}
+	decoder := json.NewDecoder(request.Body)
+	var newMessage Message
+	err := decoder.Decode(&newMessage)
+	if err != nil {
+		response.Header().Set("Content-Type", "application/problem+json")
+		http.Error(response, "The user object is bad formatted, missing attributes or has invalid values.", http.StatusBadRequest)
+		log.Println("JSON decoding error.", err)
+		return
+	}
+	if newMessage.To == "" || newMessage.From == "" || newMessage.Body == "" {
+		response.Header().Set("Content-Type", "application/problem+json")
+		errors := ""
+		switch {
+		case newMessage.To == "":
+			errors += "Message sender is empty. "
+		case newMessage.From == "":
+			errors += "Message recipient is empty. "
+		case newMessage.Body == "":
+			errors += "Message has no content. "
+		}
+		http.Error(response, errors, http.StatusBadRequest)
+		log.Println(errors, err)
+	}
+	sender, err := dbGetUser(c.DB, newMessage.From)
+	if err != nil {
+		if err.Error() == "not found" {
+			response.Header().Set("Content-Type", "application/problem+json")
+			http.Error(response, "Sender user not found.", http.StatusNotFound)
+			log.Println("Sender user not found.", err)
+			return
+		} else {
+			response.Header().Set("Content-Type", "application/problem+json")
+			http.Error(response, "Unexpected error verifying sender.", http.StatusInternalServerError)
+			log.Println("Unexpected error verifying sender.", err)
+			return
+		}
+	} else if sender.Budget < 1 {
+		response.Header().Set("Content-Type", "application/problem+json")
+		http.Error(response, "User budget exceeded.", http.StatusUnauthorized)
+		log.Println("User budget exceeded.", err)
+		return
+	}
+	_, err = dbGetUser(c.DB, newMessage.To)
+	if err != nil {
+		if err.Error() == "not found" {
+			response.Header().Set("Content-Type", "application/problem+json")
+			http.Error(response, "Recipient user not found.", http.StatusNotFound)
+			log.Println("Recipient user not found.", err)
+			return
+		} else {
+			response.Header().Set("Content-Type", "application/problem+json")
+			http.Error(response, "Unexpected error verifying recipient.", http.StatusInternalServerError)
+			log.Println("Unexpected error verifying recipient.", err)
+			return
+		}
+	}
+	newMessage.ID = bson.NewObjectId()
+	newMessage.SentAt = time.Now()
+	dbAddMessage(c.DB, newMessage)
+	if err != nil {
+		http.Error(response, "Unexpected Error.", http.StatusInternalServerError)
+		log.Println("Unknown error in dbAddMessage call.", err)
+		return
+	}
+	check, err := dbGetMessage(c.DB, newMessage.ID)
+	if err != nil {
+		response.Header().Set("Content-Type", "application/problem+json")
+		http.Error(response, "Unexpected Error.", http.StatusInternalServerError)
+		log.Println("Error in dbGetMessage.", err)
+		return
+	}
+	err = dbDecreaseBudget(c.DB, sender)
+	if err != nil {
+		if err.Error() == "budget discrepancy" {
+			log.Println("Budget discrepancy.", err)
+		} else {
+			log.Println("Unknown error in dbDecreaseBudget call.", err)
+		}
+	}
+	response.Header().Set("Content-Type", "application/json")
+	response.WriteHeader(http.StatusCreated)
+	json.NewEncoder(response).Encode(check)
 }
 
 func (c *Controller) GetMessages(response http.ResponseWriter, request *http.Request) {
@@ -251,16 +371,15 @@ func main() {
 
 	d := dbInit()
 	defer d.Close()
-
 	ctrl := NewController(d)
-
 	mux := http.NewServeMux()
-	mux.HandleFunc("/listusers", ctrl.ListUsers)   // List all users.
-	mux.HandleFunc("/users", ctrl.NewUser)         // New user.
-	mux.HandleFunc("/users/", ctrl.GetUser)        // Get user by username.
-	mux.HandleFunc("/messages", ctrl.NewMessage)   // New message.
-	mux.HandleFunc("/messages/", ctrl.GetMessages) // Get messages to user.
-	mux.HandleFunc("/message/", ctrl.GetMessage)   // Get message by id.
+	mux.HandleFunc("/listusers", ctrl.ListAllUsers) // List all users.
+	mux.HandleFunc("/listmsg", ctrl.ListMessages)   // List all messages.
+	mux.HandleFunc("/users", ctrl.NewUser)          // New user.
+	mux.HandleFunc("/users/", ctrl.GetUser)         // Get user by username.
+	mux.HandleFunc("/messages", ctrl.NewMessage)    // New message.
+	mux.HandleFunc("/messages/", ctrl.GetMessages)  // Get messages to user.
+	mux.HandleFunc("/message/", ctrl.GetMessage)    // Get message by id.
 
 	if err := http.ListenAndServe(":8000", mux); err != nil {
 		log.Fatal(err)
