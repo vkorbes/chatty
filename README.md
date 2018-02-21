@@ -1,1 +1,1 @@
-# chatty
+This API will be used to control users exchanging messages between each other.
