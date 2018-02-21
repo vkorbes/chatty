@@ -308,8 +308,8 @@ func (c *Controller) NewUser(response http.ResponseWriter, request *http.Request
 	json.NewEncoder(response).Encode(&check)
 }
 
-// GetUser
-func (c *Controller) GetUser(response http.ResponseWriter, request *http.Request) {
+// GetUserByUsername
+func (c *Controller) GetUserByUsername(response http.ResponseWriter, request *http.Request) {
 	if request.Method != "GET" {
 		http.Error(response, "Please use a GET request.", http.StatusBadRequest)
 		log.Println("Non-GET /users/ request.")
@@ -334,13 +334,40 @@ func (c *Controller) GetUser(response http.ResponseWriter, request *http.Request
 	json.NewEncoder(response).Encode(&query)
 }
 
+// GetUserByID
+func (c *Controller) GetUserByID(response http.ResponseWriter, request *http.Request) {
+	if request.Method != "GET" {
+		http.Error(response, "Please use a GET request.", http.StatusBadRequest)
+		log.Println("Non-GET /users/ request.")
+		return
+	}
+	id := path.Base(request.URL.Path)
+	if !bson.IsObjectIdHex(id) {
+		response.Header().Set("Content-Type", "application/problem+json")
+		http.Error(response, "The user object is bad formatted, missing attributes or has invalid values.", http.StatusBadRequest)
+		log.Println("Invalid ObjectId.")
+		return
+	}
+	query, err := dbGetUserByID(c.DB, bson.ObjectIdHex(id))
+	if err != nil {
+		if err.Error() == "not found" {
+			response.Header().Set("Content-Type", "application/problem+json")
+			http.Error(response, "The user was not found. 1", http.StatusNotFound)
+			log.Println("Error in dbGetUserByID.", err)
+			return
+		} else {
+			response.Header().Set("Content-Type", "application/problem+json")
+			http.Error(response, "Unexpected Error.", http.StatusInternalServerError)
+			log.Println("Error in dbGetUserByID.", err)
+			return
+		}
+	}
+	response.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(response).Encode(&query)
+}
+
 // NewMessage
 func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Request) {
-	// if request.Method != "POST" {
-	// 	http.Error(response, "Please use a POST request.", http.StatusBadRequest)
-	// 	log.Println("Non-POST /users request.")
-	// 	return
-	// }
 	decoder := json.NewDecoder(request.Body)
 	var newMessage Message
 	err := decoder.Decode(&newMessage)
@@ -427,11 +454,6 @@ func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Requ
 
 // GetMessages
 func (c *Controller) GetMessages(response http.ResponseWriter, request *http.Request) {
-	// if request.Method != "GET" {
-	// 	http.Error(response, "Please use a GET request.", http.StatusBadRequest)
-	// 	log.Println("Non-GET /users/ request.")
-	// 	return
-	// }
 	user := request.URL.Query().Get("to")
 	messages, err := dbGetMessagesByUser(c.DB, user)
 	if err != nil {
@@ -455,8 +477,56 @@ func dbGetMessagesByUser(db *mgo.Session, user string) (Messages, error) {
 	return Messages{sm}, nil
 }
 
+// dbGetMessagesByID
+func dbGetMessagesByID(db *mgo.Session, id bson.ObjectId) (Message, error) {
+	m := Message{}
+	err := db.DB("chatty").C("messages").FindId(id).One(&m)
+	if err != nil {
+		return Message{}, err
+	}
+	return m, nil
+}
+
 // GetMessage
 func (c *Controller) GetMessage(response http.ResponseWriter, request *http.Request) {
+	if request.Method != "GET" {
+		http.Error(response, "Please use a GET request.", http.StatusBadRequest)
+		log.Println("Non-GET /users/ request.")
+		return
+	}
+	id := path.Base(request.URL.Path)
+	if !bson.IsObjectIdHex(id) {
+		response.Header().Set("Content-Type", "application/problem+json")
+		http.Error(response, "The user object is bad formatted, missing attributes or has invalid values.", http.StatusBadRequest)
+		log.Println("Invalid ObjectId.")
+		return
+	}
+	query, err := dbGetMessagesByID(c.DB, bson.ObjectIdHex(id))
+	if err != nil {
+		if err.Error() == "not found" {
+			response.Header().Set("Content-Type", "application/problem+json")
+			http.Error(response, "The ID was not found.", http.StatusNotFound)
+			log.Println("Error in dbGetUser.", err)
+			return
+		} else {
+			response.Header().Set("Content-Type", "application/problem+json")
+			http.Error(response, "Unexpected Error.", http.StatusInternalServerError)
+			log.Println("Error in dbGetUser.", err)
+			return
+		}
+	}
+	response.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(response).Encode(&query)
+}
+
+// dbGetUserByID
+func dbGetUserByID(db *mgo.Session, id bson.ObjectId) (User, error) {
+	data := User{}
+	err := db.DB("chatty").C("users").FindId(id).One(&data)
+	if err != nil {
+		return data, err
+	}
+	return data, nil
 }
 
 /*
@@ -494,7 +564,7 @@ func main() {
 	mux.HandleFunc("/listusers", ctrl.ListAllUsers)  // List all users.
 	mux.HandleFunc("/listmsg", ctrl.ListAllMessages) // List all messages.
 	mux.HandleFunc("/users", ctrl.NewUser)           // New user.
-	mux.HandleFunc("/users/", ctrl.GetUser)          // Get user by username.
+	mux.HandleFunc("/users/", ctrl.GetUserByID)      // Get user by id.
 	mux.HandleFunc("/messages", ctrl.MessageRouter)  // POST: New message. GET: Get messages for user.
 	mux.HandleFunc("/message/", ctrl.GetMessage)     // Get message by id.
 
