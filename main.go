@@ -17,10 +17,21 @@ import (
 
 /*
 
-Types.
+888
+888
+888
+888888 888  888 88888b.   .d88b.  .d8888b
+888    888  888 888 "88b d8P  Y8b 88K
+888    888  888 888  888 88888888 "Y8888b.
+Y88b.  Y88b 888 888 d88P Y8b.          X88
+ "Y888  "Y88888 88888P"   "Y8888   88888P'
+            888 888
+       Y8b d88P 888
+        "Y88P"  888
 
 */
 
+// User
 type User struct {
 	ID        bson.ObjectId `json:"id"        bson:"_id,omitempty"` // The unique indentifier of the object. Read only.
 	Budget    int           `json:"budget"    bson:"budget"`        // The remaining budget to send messages. Read only.
@@ -30,13 +41,12 @@ type User struct {
 	UpdatedAt time.Time     `json:"updatedAt" bson:"updatedAt"`     // The UTC date and time user has been updated. Read only.
 }
 
-// Dates should follow: 2018-02-19T19:23:57.943Z
-// time.Parse(time.RFC3339, "2006-01-02T15:04:05Z")
-
+// Messages
 type Messages struct {
 	Entries []Message `json:"messages" bson:"messages"`
 }
 
+// Message
 type Message struct {
 	ID     bson.ObjectId `json:"id"      bson:"_id,omitempty"` // The unique indentifier of the object. Read only.
 	From   string        `json:"from"    bson:"from"`          // The sender user id.
@@ -45,6 +55,7 @@ type Message struct {
 	SentAt time.Time     `json:"sentAt"  bson:"sentAt"`        // The UTC date and time message was sent. Read only.
 }
 
+// Problem
 type Problem struct {
 	Type     string   `json:"type" bson:"type"`         // An absolute URI that identifies the problem type. When dereferenced, it SHOULD provide human-readable documentation for the problem type (e.g., using HTML).
 	Title    string   `json:"title" bson:"title"`       // A short, summary of the problem type. Written in english and readable for engineers (usually not suited for non technical stakeholders and not localized).
@@ -54,16 +65,52 @@ type Problem struct {
 	Instance string   `json:"instance" bson:"instance"` // An absolute URI that identifies the specific occurrence of the problem. It may or may not yield further information if dereferenced.
 }
 
+func (u *User) MarshalJSON() ([]byte, error) {
+	type Alias User
+	utc, _ := time.LoadLocation("UTC")
+	return json.Marshal(&struct {
+		*Alias
+		CreatedAt string `json:"createdAt" bson:"createdAt"`
+		UpdatedAt string `json:"updatedAt" bson:"updatedAt"`
+	}{
+		Alias:     (*Alias)(u),
+		CreatedAt: u.CreatedAt.In(utc).Format("2006-01-02T15:04:05.999Z0700"),
+		UpdatedAt: u.UpdatedAt.In(utc).Format("2006-01-02T15:04:05.999Z0700"),
+	})
+}
+
+func (u *Message) MarshalJSON() ([]byte, error) {
+	type Alias Message
+	utc, _ := time.LoadLocation("UTC")
+	return json.Marshal(&struct {
+		*Alias
+		SentAt string `json:"sentAt"  bson:"sentAt"`
+	}{
+		Alias:  (*Alias)(u),
+		SentAt: u.SentAt.In(utc).Format("2006-01-02T15:04:05.999Z0700"),
+	})
+}
+
+// Dates should follow: 2018-02-19T19:23:57.943Z
+// time.Parse(time.RFC3339, "2006-01-02T15:04:05Z")
+
 /*
 
-Database code.
+     888          888             888
+     888          888             888
+     888          888             888
+ .d88888  8888b.  888888  8888b.  88888b.   8888b.  .d8888b   .d88b.
+d88" 888     "88b 888        "88b 888 "88b     "88b 88K      d8P  Y8b
+888  888 .d888888 888    .d888888 888  888 .d888888 "Y8888b. 88888888
+Y88b 888 888  888 Y88b.  888  888 888 d88P 888  888      X88 Y8b.
+ "Y88888 "Y888888  "Y888 "Y888888 88888P"  "Y888888  88888P'  "Y8888
+
+
+
 
 */
 
-// func dbReset () {}
-// func dbWrite () {}
-// func dbQuery () {}
-
+// dbInit
 func dbInit() *mgo.Session {
 	session, err := mgo.Dial(secrets.Mongo())
 	if err != nil {
@@ -72,6 +119,7 @@ func dbInit() *mgo.Session {
 	return session
 }
 
+// dbAddUser
 func dbAddUser(db *mgo.Session, user User) error {
 	c := db.DB("chatty").C("users")
 	count, err := c.Find(bson.M{"username": user.Username}).Limit(1).Count()
@@ -85,6 +133,7 @@ func dbAddUser(db *mgo.Session, user User) error {
 	// TODO: look into mgo.IsDup(err) func
 }
 
+// dbGetUser
 func dbGetUser(db *mgo.Session, user string) (User, error) {
 	data := User{}
 	err := db.DB("chatty").C("users").Find(bson.M{"username": user}).One(&data)
@@ -94,11 +143,13 @@ func dbGetUser(db *mgo.Session, user string) (User, error) {
 	return data, nil
 }
 
+// dbAddMessage
 func dbAddMessage(db *mgo.Session, message Message) error {
 	c := db.DB("chatty").C("messages")
 	return c.Insert(message)
 }
 
+// dbGetMessage
 func dbGetMessage(db *mgo.Session, id bson.ObjectId) (Message, error) {
 	data := Message{}
 	err := db.DB("chatty").C("messages").FindId(id).One(&data)
@@ -108,6 +159,7 @@ func dbGetMessage(db *mgo.Session, id bson.ObjectId) (Message, error) {
 	return data, nil
 }
 
+// dbDecreaseBudget
 func dbDecreaseBudget(db *mgo.Session, sender User) error {
 	userCheck := User{}
 	budget := mgo.Change{
@@ -124,6 +176,7 @@ func dbDecreaseBudget(db *mgo.Session, sender User) error {
 	return nil
 }
 
+// dbItemsInCollection
 func dbItemsInCollection(db *mgo.Session, collection string) (interface{}, error) {
 	c := db.DB("chatty").C(collection)
 	switch {
@@ -151,38 +204,53 @@ func dbItemsInCollection(db *mgo.Session, collection string) (interface{}, error
 
 /*
 
-Controller code.
+                          888                    888 888
+                          888                    888 888
+                          888                    888 888
+ .d8888b .d88b.  88888b.  888888 888d888 .d88b.  888 888  .d88b.  888d888
+d88P"   d88""88b 888 "88b 888    888P"  d88""88b 888 888 d8P  Y8b 888P"
+888     888  888 888  888 888    888    888  888 888 888 88888888 888
+Y88b.   Y88..88P 888  888 Y88b.  888    Y88..88P 888 888 Y8b.     888
+ "Y8888P "Y88P"  888  888  "Y888 888     "Y88P"  888 888  "Y8888  888
+
+
+
 
 */
 
+// Controller
 type Controller struct {
 	DB *mgo.Session
 }
 
+// NewController
 func NewController(db *mgo.Session) *Controller {
 	return &Controller{
 		DB: db,
 	}
 }
 
+// ListAllUsers
 func (c *Controller) ListAllUsers(response http.ResponseWriter, request *http.Request) {
 	items, err := dbItemsInCollection(c.DB, "users")
 	if err != nil {
 		log.Println(err)
 	}
 	response.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(response).Encode(items)
+	json.NewEncoder(response).Encode(&items)
 }
 
-func (c *Controller) ListMessages(response http.ResponseWriter, request *http.Request) {
+// ListAllMessages
+func (c *Controller) ListAllMessages(response http.ResponseWriter, request *http.Request) {
 	items, err := dbItemsInCollection(c.DB, "messages")
 	if err != nil {
 		log.Println(err)
 	}
 	response.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(response).Encode(items)
+	json.NewEncoder(response).Encode(&items)
 }
 
+// NewUser
 func (c *Controller) NewUser(response http.ResponseWriter, request *http.Request) {
 	if request.Method != "POST" {
 		http.Error(response, "Please use a POST request.", http.StatusBadRequest)
@@ -237,9 +305,10 @@ func (c *Controller) NewUser(response http.ResponseWriter, request *http.Request
 	}
 	response.Header().Set("Content-Type", "application/json")
 	response.WriteHeader(http.StatusCreated)
-	json.NewEncoder(response).Encode(check)
+	json.NewEncoder(response).Encode(&check)
 }
 
+// GetUser
 func (c *Controller) GetUser(response http.ResponseWriter, request *http.Request) {
 	if request.Method != "GET" {
 		http.Error(response, "Please use a GET request.", http.StatusBadRequest)
@@ -262,15 +331,16 @@ func (c *Controller) GetUser(response http.ResponseWriter, request *http.Request
 		}
 	}
 	response.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(response).Encode(query)
+	json.NewEncoder(response).Encode(&query)
 }
 
+// NewMessage
 func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Request) {
-	if request.Method != "POST" {
-		http.Error(response, "Please use a POST request.", http.StatusBadRequest)
-		log.Println("Non-POST /users request.")
-		return
-	}
+	// if request.Method != "POST" {
+	// 	http.Error(response, "Please use a POST request.", http.StatusBadRequest)
+	// 	log.Println("Non-POST /users request.")
+	// 	return
+	// }
 	decoder := json.NewDecoder(request.Body)
 	var newMessage Message
 	err := decoder.Decode(&newMessage)
@@ -352,20 +422,68 @@ func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Requ
 	}
 	response.Header().Set("Content-Type", "application/json")
 	response.WriteHeader(http.StatusCreated)
-	json.NewEncoder(response).Encode(check)
+	json.NewEncoder(response).Encode(&check)
 }
 
+// GetMessages
 func (c *Controller) GetMessages(response http.ResponseWriter, request *http.Request) {
+	// if request.Method != "GET" {
+	// 	http.Error(response, "Please use a GET request.", http.StatusBadRequest)
+	// 	log.Println("Non-GET /users/ request.")
+	// 	return
+	// }
+	user := request.URL.Query().Get("to")
+	messages, err := dbGetMessagesByUser(c.DB, user)
+	if err != nil {
+		response.Header().Set("Content-Type", "application/problem+json")
+		http.Error(response, "Unexpected Error.", http.StatusInternalServerError)
+		log.Println("Error in dbGetMessagesByUser.", err)
+		return
+	}
+	response.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(response).Encode(&messages)
 }
 
+// dbGetMessagesByUser
+func dbGetMessagesByUser(db *mgo.Session, user string) (Messages, error) {
+	c := db.DB("chatty").C("messages")
+	sm := []Message{}
+	err := c.Find(bson.M{"to": user}).All(&sm)
+	if err != nil {
+		return Messages{}, err
+	}
+	return Messages{sm}, nil
+}
+
+// GetMessage
 func (c *Controller) GetMessage(response http.ResponseWriter, request *http.Request) {
 }
 
 /*
 
-Main.
+                       d8b
+                       Y8P
+
+88888b.d88b.   8888b.  888 88888b.
+888 "888 "88b     "88b 888 888 "88b
+888  888  888 .d888888 888 888  888
+888  888  888 888  888 888 888  888
+888  888  888 "Y888888 888 888  888
+
+
+
 
 */
+
+// MessageRouter
+func (c *Controller) MessageRouter(response http.ResponseWriter, request *http.Request) {
+	if request.Method == "POST" {
+		c.NewMessage(response, request)
+	}
+	if request.Method == "GET" {
+		c.GetMessages(response, request)
+	}
+}
 
 func main() {
 
@@ -373,13 +491,12 @@ func main() {
 	defer d.Close()
 	ctrl := NewController(d)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/listusers", ctrl.ListAllUsers) // List all users.
-	mux.HandleFunc("/listmsg", ctrl.ListMessages)   // List all messages.
-	mux.HandleFunc("/users", ctrl.NewUser)          // New user.
-	mux.HandleFunc("/users/", ctrl.GetUser)         // Get user by username.
-	mux.HandleFunc("/messages", ctrl.NewMessage)    // New message.
-	mux.HandleFunc("/messages/", ctrl.GetMessages)  // Get messages to user.
-	mux.HandleFunc("/message/", ctrl.GetMessage)    // Get message by id.
+	mux.HandleFunc("/listusers", ctrl.ListAllUsers)  // List all users.
+	mux.HandleFunc("/listmsg", ctrl.ListAllMessages) // List all messages.
+	mux.HandleFunc("/users", ctrl.NewUser)           // New user.
+	mux.HandleFunc("/users/", ctrl.GetUser)          // Get user by username.
+	mux.HandleFunc("/messages", ctrl.MessageRouter)  // POST: New message. GET: Get messages for user.
+	mux.HandleFunc("/message/", ctrl.GetMessage)     // Get message by id.
 
 	if err := http.ListenAndServe(":8000", mux); err != nil {
 		log.Fatal(err)
