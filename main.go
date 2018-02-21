@@ -3,9 +3,10 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
+	"path"
+	"regexp"
 	"time"
 
 	"github.com/ellenkorbes/chatty/secrets"
@@ -78,9 +79,26 @@ func dbAddUser(db *mgo.Session, user User) error {
 		return err
 	}
 	if count > 0 {
-		return fmt.Errorf("User %s already exists.", user.Username)
+		return errors.New("409")
 	}
 	return c.Insert(user)
+	// err := r.C.Insert(user)
+	// if err != nil {
+	//   if !mgo.IsDup(err) {
+	// 	// TODO look for that specific user in the database and update it
+	// 	// or inform the user that the username/email already exists
+	//   }
+	//   // TODO
+	// }
+}
+
+func dbGetUser(db *mgo.Session, user string) (User, error) {
+	data := User{}
+	err := db.DB("chatty").C("users").Find(bson.M{"username": user}).One(&data)
+	if err != nil {
+		return data, err
+	}
+	return data, nil
 }
 
 func dbItemsInCollection(db *mgo.Session, collection string) (interface{}, error) {
@@ -134,9 +152,84 @@ func (c *Controller) ListUsers(response http.ResponseWriter, request *http.Reque
 }
 
 func (c *Controller) NewUser(response http.ResponseWriter, request *http.Request) {
+	if request.Method != "POST" {
+		http.Error(response, "Please use a POST request.", http.StatusBadRequest)
+		log.Println("Non-POST /users request.")
+		return
+	}
+	decoder := json.NewDecoder(request.Body)
+	var newUser User
+	err := decoder.Decode(&newUser)
+	if err != nil {
+		response.Header().Set("Content-Type", "application/problem+json")
+		http.Error(response, "The user object is bad formatted, missing attributes or has invalid values. 1", http.StatusBadRequest)
+		log.Println("JSON decoding error.", err)
+		return
+	}
+	r, _ := regexp.Compile(`^[a-z][a-z_\.\-0-9]*$`)
+	if !r.MatchString(newUser.Username) {
+		response.Header().Set("Content-Type", "application/problem+json")
+		http.Error(response, "The user object is bad formatted, missing attributes or has invalid values. 2", http.StatusBadRequest)
+		log.Println("Regexp error.", err)
+		return
+	}
+	// now, err := time.Parse(time.RFC3339, time.Now())
+	// if err != nil {
+	// 	response.Header().Set("Content-Type", "application/problem+json")
+	// 	http.Error(response, "Unexpected Error.", http.StatusInternalServerError)
+	// 	log.Fatal(err)
+	// }
+	newUser.ID = bson.NewObjectId()
+	newUser.Budget = 10
+	newUser.CreatedAt = time.Now()
+	newUser.UpdatedAt = time.Now()
+	err = dbAddUser(c.DB, newUser)
+	if err != nil {
+		response.Header().Set("Content-Type", "application/problem+json")
+		if err.Error() == "409" {
+			http.Error(response, "The username is already taken by another user. 3", http.StatusConflict)
+			log.Println("Username already taken.", err)
+			return
+		} else {
+			http.Error(response, "Unexpected Error. 4", http.StatusInternalServerError)
+			log.Println("Unknown error in dbAddUser call.", err)
+			return
+		}
+	}
+	check, err := dbGetUser(c.DB, newUser.Username)
+	if err != nil {
+		response.Header().Set("Content-Type", "application/problem+json")
+		http.Error(response, "Unexpected Error. 5", http.StatusInternalServerError)
+		log.Println("Error in dbGetUser.", err)
+		return
+	}
+	response.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(response).Encode(check)
 }
 
 func (c *Controller) GetUser(response http.ResponseWriter, request *http.Request) {
+	if request.Method != "GET" {
+		http.Error(response, "Please use a GET request.", http.StatusBadRequest)
+		log.Println("Non-GET /users/ request.")
+		return
+	}
+	user := path.Base(request.URL.Path)
+	query, err := dbGetUser(c.DB, user)
+	if err != nil {
+		if err.Error() == "not found" {
+			response.Header().Set("Content-Type", "application/problem+json")
+			http.Error(response, "The user was not found.", http.StatusNotFound)
+			log.Println("Error in dbGetUser.", err)
+			return
+		} else {
+			response.Header().Set("Content-Type", "application/problem+json")
+			http.Error(response, "Unexpected Error.", http.StatusInternalServerError)
+			log.Println("Error in dbGetUser.", err)
+			return
+		}
+	}
+	response.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(response).Encode(query)
 }
 
 func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Request) {
