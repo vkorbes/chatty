@@ -28,22 +28,22 @@ func NewController(db *mgo.Session) *Controller {
 
 // ListAllUsers
 func (c *Controller) ListAllUsers(response http.ResponseWriter, request *http.Request) {
-	items, err := db.ItemsInCollection(c.DB, "users")
-	if err != nil {
-		log.Println(err)
-	}
-	response.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(response).Encode(&items)
+	c.ListAll(response, request, &[]types.User{})
 }
 
 // ListAllMessages
 func (c *Controller) ListAllMessages(response http.ResponseWriter, request *http.Request) {
-	items, err := db.ItemsInCollection(c.DB, "messages")
+	c.ListAll(response, request, &[]types.Message{})
+}
+
+func (c *Controller) ListAll(response http.ResponseWriter, request *http.Request, items interface{}) {
+	err := db.GetAll(c.DB, items)
 	if err != nil {
-		log.Println(err)
+		Error(response, request, http.StatusInternalServerError, ErrorMessage["db.AddUser"])
+		return
 	}
 	response.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(response).Encode(&items)
+	json.NewEncoder(response).Encode(items)
 }
 
 // NewUser
@@ -72,15 +72,19 @@ func (c *Controller) NewUser(response http.ResponseWriter, request *http.Request
 	newUser.Budget = 10
 	newUser.CreatedAt = time.Now()
 	newUser.UpdatedAt = time.Now()
-	err = db.AddUser(c.DB, newUser)
+	unique, err := db.IsUnique(c.DB, newUser)
 	if err != nil {
-		if err.Error() == "409" {
-			Error(response, request, http.StatusConflict, ErrorMessage["TakenUsername"])
-			return
-		} else {
-			Error(response, request, http.StatusInternalServerError, ErrorMessage["db.AddUser"])
-			return
-		}
+		Error(response, request, http.StatusInternalServerError, ErrorMessage["db.AddUser"])
+		return
+	}
+	if !unique {
+		Error(response, request, http.StatusConflict, ErrorMessage["TakenUsername"])
+		return
+	}
+	err = db.Add(c.DB, &newUser)
+	if err != nil {
+		Error(response, request, http.StatusInternalServerError, ErrorMessage["db.AddUser"])
+		return
 	}
 	check, err := db.GetUser(c.DB, newUser.Username)
 	if err != nil {
@@ -124,7 +128,8 @@ func (c *Controller) GetUserByID(response http.ResponseWriter, request *http.Req
 		Error(response, request, http.StatusBadRequest, ErrorMessage["BadObjectID"])
 		return
 	}
-	query, err := db.GetUserByID(c.DB, bson.ObjectIdHex(id))
+	query := types.User{}
+	err := db.Get(c.DB, bson.ObjectIdHex(id), &query)
 	if err != nil {
 		if err.Error() == "not found" {
 			Error(response, request, http.StatusNotFound, ErrorMessage["UserNotFound"])
@@ -188,12 +193,13 @@ func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Requ
 	}
 	newMessage.ID = bson.NewObjectId()
 	newMessage.SentAt = time.Now()
-	db.AddMessage(c.DB, newMessage)
+	db.Add(c.DB, &newMessage)
 	if err != nil {
 		Error(response, request, http.StatusInternalServerError, ErrorMessage["db.AddMessage"])
 		return
 	}
-	check, err := db.GetMessage(c.DB, newMessage.ID)
+	check := types.Message{}
+	err = db.Get(c.DB, newMessage.ID, &check)
 	if err != nil {
 		Error(response, request, http.StatusInternalServerError, ErrorMessage["db.GetMessage"])
 		return
@@ -234,7 +240,8 @@ func (c *Controller) GetMessage(response http.ResponseWriter, request *http.Requ
 		Error(response, request, http.StatusBadRequest, ErrorMessage["BadObjectID"])
 		return
 	}
-	query, err := db.GetMessagesByID(c.DB, bson.ObjectIdHex(id))
+	query := types.Message{}
+	err := db.Get(c.DB, bson.ObjectIdHex(id), &query)
 	if err != nil {
 		if err.Error() == "not found" {
 			Error(response, request, http.StatusNotFound, ErrorMessage["MessageNotFound"])

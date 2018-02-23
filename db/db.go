@@ -19,18 +19,18 @@ func Init() *mgo.Session {
 	return session
 }
 
-// dbAddUser
-func AddUser(db *mgo.Session, user types.User) error {
-	c := db.DB("chatty").C("users")
-	count, err := c.Find(bson.M{"username": user.Username}).Limit(1).Count()
-	if err != nil {
-		return err
-	}
-	if count > 0 {
-		return errors.New("409")
-	}
-	return c.Insert(user)
-	// TODO: look into mgo.IsDup(err) func
+// Add - interface must be pointer!
+func Add(db *mgo.Session, entry interface{}) error {
+	return db.DB("chatty").C(collectionByType(entry)).Insert(entry)
+}
+
+// Get - argument saveTo must be a pointer!
+func Get(db *mgo.Session, id bson.ObjectId, saveTo interface{}) error {
+	return db.DB("chatty").C(collectionByType(saveTo)).FindId(id).One(saveTo)
+}
+
+func GetAll(db *mgo.Session, saveTo interface{}) error {
+	return db.DB("chatty").C(collectionByType(saveTo)).Find(bson.M{}).All(saveTo)
 }
 
 // dbGetUser
@@ -38,23 +38,7 @@ func GetUser(db *mgo.Session, user string) (types.User, error) {
 	data := types.User{}
 	err := db.DB("chatty").C("users").Find(bson.M{"username": user}).One(&data)
 	if err != nil {
-		return data, err
-	}
-	return data, nil
-}
-
-// dbAddMessage
-func AddMessage(db *mgo.Session, message types.Message) error {
-	c := db.DB("chatty").C("messages")
-	return c.Insert(message)
-}
-
-// dbGetMessage
-func GetMessage(db *mgo.Session, id bson.ObjectId) (types.Message, error) {
-	data := types.Message{}
-	err := db.DB("chatty").C("messages").FindId(id).One(&data)
-	if err != nil {
-		return data, err
+		return types.User{}, err
 	}
 	return data, nil
 }
@@ -76,59 +60,40 @@ func DecreaseBudget(db *mgo.Session, sender types.User) error {
 	return nil
 }
 
-// dbItemsInCollection
-func ItemsInCollection(db *mgo.Session, collection string) (interface{}, error) {
-	c := db.DB("chatty").C(collection)
-	switch {
-	case collection == "users":
-		user := types.User{}
-		find := c.Find(bson.M{})
-		items := find.Iter()
-		response := []types.User{}
-		for items.Next(&user) {
-			response = append(response, user)
-		}
-		return response, nil
-	case collection == "messages":
-		message := types.Message{}
-		find := c.Find(bson.M{})
-		items := find.Iter()
-		response := []types.Message{}
-		for items.Next(&message) {
-			response = append(response, message)
-		}
-		return response, nil
-	}
-	return nil, errors.New("Valid collections are: users, messages.")
-}
-
-// dbGetUserByID
-func GetUserByID(db *mgo.Session, id bson.ObjectId) (types.User, error) {
-	data := types.User{}
-	err := db.DB("chatty").C("users").FindId(id).One(&data)
-	if err != nil {
-		return data, err
-	}
-	return data, nil
-}
-
 // dbGetMessagesByUser
 func GetMessagesByUser(db *mgo.Session, user string) (types.Messages, error) {
-	c := db.DB("chatty").C("messages")
 	sm := []types.Message{}
-	err := c.Find(bson.M{"to": user}).All(&sm)
+	err := db.DB("chatty").C("messages").Find(bson.M{"to": user}).All(&sm)
 	if err != nil {
 		return types.Messages{}, err
 	}
 	return types.Messages{sm}, nil
 }
 
-// dbGetMessagesByID
-func GetMessagesByID(db *mgo.Session, id bson.ObjectId) (types.Message, error) {
-	m := types.Message{}
-	err := db.DB("chatty").C("messages").FindId(id).One(&m)
+// IsUnique
+func IsUnique(db *mgo.Session, user types.User) (bool, error) {
+	c := db.DB("chatty").C("users")
+	count, err := c.Find(bson.M{"username": user.Username}).Limit(1).Count()
 	if err != nil {
-		return types.Message{}, err
+		return false, err
 	}
-	return m, nil
+	if count != 0 {
+		return false, nil
+	}
+	return true, nil
+}
+
+// collectionByType
+func collectionByType(x interface{}) string {
+	switch x.(type) {
+	case *types.User:
+		return "users"
+	case *[]types.User:
+		return "users"
+	case *types.Message:
+		return "messages"
+	case *[]types.Message:
+		return "messages"
+	}
+	return ""
 }
