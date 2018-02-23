@@ -1,6 +1,6 @@
 package types
 
-// Problem
+// Problem is a structure for generating an object according to RFC 7807.
 type Problem struct {
 	Type     string   `json:"type" bson:"type"`         // An absolute URI that identifies the problem type. When dereferenced, it SHOULD provide human-readable documentation for the problem type (e.g., using HTML).
 	Title    string   `json:"title" bson:"title"`       // A short, summary of the problem type. Written in english and readable for engineers (usually not suited for non technical stakeholders and not localized).

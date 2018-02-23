@@ -14,28 +14,29 @@ import (
 	"gopkg.in/mgo.v2/bson"
 )
 
-// Controller
+// Controller is... pretty simple, just look at it.
 type Controller struct {
 	DB *mgo.Session
 }
 
-// NewController
+// NewController returns a new Controller.
 func NewController(db *mgo.Session) *Controller {
 	return &Controller{
 		DB: db,
 	}
 }
 
-// ListAllUsers
+// ListAllUsers lists all registered users.
 func (c *Controller) ListAllUsers(response http.ResponseWriter, request *http.Request) {
 	c.ListAll(response, request, &[]types.User{})
 }
 
-// ListAllMessages
+// ListAllMessages lists all messages.
 func (c *Controller) ListAllMessages(response http.ResponseWriter, request *http.Request) {
 	c.ListAll(response, request, &[]types.Message{})
 }
 
+// ListAll lists all items of the interface{} type. Valid types are *[]types.User and *[]types.Message.
 func (c *Controller) ListAll(response http.ResponseWriter, request *http.Request, items interface{}) {
 	err := db.GetAll(c.DB, items)
 	if err != nil {
@@ -46,7 +47,7 @@ func (c *Controller) ListAll(response http.ResponseWriter, request *http.Request
 	json.NewEncoder(response).Encode(items)
 }
 
-// NewUser
+// NewUser creates a new user and returns the resulting object.
 func (c *Controller) NewUser(response http.ResponseWriter, request *http.Request) {
 	if request.Method != "POST" {
 		Error(response, request, http.StatusMethodNotAllowed, ErrorMessage["PleasePOST"])
@@ -96,7 +97,7 @@ func (c *Controller) NewUser(response http.ResponseWriter, request *http.Request
 	json.NewEncoder(response).Encode(&check)
 }
 
-// GetUserByUsername
+// GetUserByUsername returns a full User object based on the username.
 func (c *Controller) GetUserByUsername(response http.ResponseWriter, request *http.Request) {
 	if request.Method != "GET" {
 		Error(response, request, http.StatusMethodNotAllowed, ErrorMessage["PleaseGET"])
@@ -117,7 +118,7 @@ func (c *Controller) GetUserByUsername(response http.ResponseWriter, request *ht
 	json.NewEncoder(response).Encode(&query)
 }
 
-// GetUserByID
+// GetUserByID returns a full User object based on the ID.
 func (c *Controller) GetUserByID(response http.ResponseWriter, request *http.Request) {
 	if request.Method != "GET" {
 		Error(response, request, http.StatusMethodNotAllowed, ErrorMessage["PleaseGET"])
@@ -143,7 +144,7 @@ func (c *Controller) GetUserByID(response http.ResponseWriter, request *http.Req
 	json.NewEncoder(response).Encode(&query)
 }
 
-// NewMessage
+// NewMessage creates a new message and returns the resulting object.
 func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Request) {
 	decoder := json.NewDecoder(request.Body)
 	var newMessage types.Message
@@ -164,8 +165,6 @@ func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Requ
 			errors += "The message has no content. "
 		}
 		Error(response, request, http.StatusBadRequest, errors)
-		http.Error(response, errors, http.StatusBadRequest)
-		log.Println(errors, err)
 		return
 	}
 	sender, err := db.GetUser(c.DB, newMessage.From)
@@ -217,7 +216,7 @@ func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Requ
 	json.NewEncoder(response).Encode(&check)
 }
 
-// GetMessages
+// GetMessages gets all messages addressed to a specific user.
 func (c *Controller) GetMessages(response http.ResponseWriter, request *http.Request) {
 	user := request.URL.Query().Get("to")
 	messages, err := db.GetMessagesByUser(c.DB, user)
@@ -229,7 +228,7 @@ func (c *Controller) GetMessages(response http.ResponseWriter, request *http.Req
 	json.NewEncoder(response).Encode(&messages)
 }
 
-// GetMessage
+// GetMessage returns a full Message object based on the ID.
 func (c *Controller) GetMessage(response http.ResponseWriter, request *http.Request) {
 	if request.Method != "GET" {
 		Error(response, request, http.StatusMethodNotAllowed, ErrorMessage["PleaseGET"])
@@ -255,7 +254,7 @@ func (c *Controller) GetMessage(response http.ResponseWriter, request *http.Requ
 	json.NewEncoder(response).Encode(&query)
 }
 
-// MessageRouter
+// MessageRouter routes requests to /messages to either NewMessage or GetMessages based on the request method.
 func (c *Controller) MessageRouter(response http.ResponseWriter, request *http.Request) {
 	if request.Method == "POST" {
 		c.NewMessage(response, request)

@@ -7,12 +7,12 @@ import (
 	"gopkg.in/mgo.v2/bson"
 )
 
-// Messages
+// Messages is a slice of Message.
 type Messages struct {
 	Entries []Message `json:"messages" bson:"messages"`
 }
 
-// Message
+// Message contains the message fields as per specification.
 type Message struct {
 	ID     bson.ObjectId `json:"id"      bson:"_id,omitempty"` // The unique indentifier of the object. Read only.
 	From   string        `json:"from"    bson:"from"`          // The sender user id.
@@ -21,7 +21,7 @@ type Message struct {
 	SentAt time.Time     `json:"sentAt"  bson:"sentAt"`        // The UTC date and time message was sent. Read only.
 }
 
-// MarshalJSON
+// MarshalJSON is a hack to hijack JSON encoding for this type and format the sentAt field as per specification.
 func (u *Message) MarshalJSON() ([]byte, error) {
 	type Alias Message
 	utc, _ := time.LoadLocation("UTC")

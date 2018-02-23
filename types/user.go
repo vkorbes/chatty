@@ -7,7 +7,7 @@ import (
 	"gopkg.in/mgo.v2/bson"
 )
 
-// User
+// User contains the user fields as per specification.
 type User struct {
 	ID        bson.ObjectId `json:"id"        bson:"_id,omitempty"` // The unique indentifier of the object. Read only.
 	Budget    int           `json:"budget"    bson:"budget"`        // The remaining budget to send messages. Read only.
@@ -17,7 +17,7 @@ type User struct {
 	UpdatedAt time.Time     `json:"updatedAt" bson:"updatedAt"`     // The UTC date and time user has been updated. Read only.
 }
 
-// MarshalJSON
+// MarshalJSON is a hack to hijack JSON encoding for this type and format the createdAt and updatedAt fields as per specification.
 func (u *User) MarshalJSON() ([]byte, error) {
 	type Alias User
 	utc, _ := time.LoadLocation("UTC")

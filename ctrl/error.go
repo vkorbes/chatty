@@ -7,7 +7,7 @@ import (
 	"github.com/ellenkorbes/chatty/types"
 )
 
-// Error
+// Error returns a Problem JSON object according to RFC 7807.
 func Error(response http.ResponseWriter, request *http.Request, status int, detail string) {
 	response.Header().Set("Content-Type", "application/problem+json")
 	response.WriteHeader(status)
@@ -15,12 +15,13 @@ func Error(response http.ResponseWriter, request *http.Request, status int, deta
 		Type:     "",
 		Title:    ErrorMessage[status],
 		Status:   status,
-		Detail:   detail,
+		Detail:   ErrorMessage[detail],
 		Details:  []string{},
 		Instance: request.URL.Path,
 	})
 }
 
+// ErrorMessage is a central location to store all error messages in the system.
 var ErrorMessage map[interface{}]string = map[interface{}]string{
 	// These go on Problem.Title:
 	201: "",
@@ -54,5 +55,3 @@ var ErrorMessage map[interface{}]string = map[interface{}]string{
 	"UnexpectedRecipient":  "Unknown error verifying recipient.",
 	"BlankMessage":         "",
 }
-
-// Error(response, request, http., ErrorMessages[""])

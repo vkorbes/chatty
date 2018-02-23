@@ -10,7 +10,7 @@ import (
 	"gopkg.in/mgo.v2/bson"
 )
 
-// dbInit
+// Init opens a connection to the database. Hostname, post, user, and password must be supplied by package secrets.
 func Init() *mgo.Session {
 	session, err := mgo.Dial(secrets.Mongo())
 	if err != nil {
@@ -19,21 +19,22 @@ func Init() *mgo.Session {
 	return session
 }
 
-// Add - interface must be pointer!
+// Add adds an entry to the database. The interface{} argument must be a pointer.
 func Add(db *mgo.Session, entry interface{}) error {
 	return db.DB("chatty").C(collectionByType(entry)).Insert(entry)
 }
 
-// Get - argument saveTo must be a pointer!
+// Get gets an entry from the database. The interface{} argument must be a pointer.
 func Get(db *mgo.Session, id bson.ObjectId, saveTo interface{}) error {
 	return db.DB("chatty").C(collectionByType(saveTo)).FindId(id).One(saveTo)
 }
 
+// GetAll gets all items in a collection. The interface{} argument must be a pointer.
 func GetAll(db *mgo.Session, saveTo interface{}) error {
 	return db.DB("chatty").C(collectionByType(saveTo)).Find(bson.M{}).All(saveTo)
 }
 
-// dbGetUser
+// GetUser gets the full User object for a username.
 func GetUser(db *mgo.Session, user string) (types.User, error) {
 	data := types.User{}
 	err := db.DB("chatty").C("users").Find(bson.M{"username": user}).One(&data)
@@ -43,7 +44,7 @@ func GetUser(db *mgo.Session, user string) (types.User, error) {
 	return data, nil
 }
 
-// dbDecreaseBudget
+// DecreaseBudget decreases a user's budget by 1.
 func DecreaseBudget(db *mgo.Session, sender types.User) error {
 	userCheck := types.User{}
 	budget := mgo.Change{
@@ -60,7 +61,7 @@ func DecreaseBudget(db *mgo.Session, sender types.User) error {
 	return nil
 }
 
-// dbGetMessagesByUser
+// GetMessagesByUser gets all messages addressed to a specific user.
 func GetMessagesByUser(db *mgo.Session, user string) (types.Messages, error) {
 	sm := []types.Message{}
 	err := db.DB("chatty").C("messages").Find(bson.M{"to": user}).All(&sm)
@@ -70,7 +71,7 @@ func GetMessagesByUser(db *mgo.Session, user string) (types.Messages, error) {
 	return types.Messages{sm}, nil
 }
 
-// IsUnique
+// IsUnique checks whether a username is already present in the database.
 func IsUnique(db *mgo.Session, user types.User) (bool, error) {
 	c := db.DB("chatty").C("users")
 	count, err := c.Find(bson.M{"username": user.Username}).Limit(1).Count()
@@ -83,7 +84,7 @@ func IsUnique(db *mgo.Session, user types.User) (bool, error) {
 	return true, nil
 }
 
-// collectionByType
+// collectionByType returns the fitting collection name based on the type of the object supplied.
 func collectionByType(x interface{}) string {
 	switch x.(type) {
 	case *types.User:
