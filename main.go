@@ -1,27 +1,45 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"net/http"
 
 	"github.com/ellenkorbes/chatty/ctrl"
 	"github.com/ellenkorbes/chatty/db"
+	"github.com/ellenkorbes/chatty/secrets"
 )
 
 func main() {
 
-	d := db.Init()
+	argPort := flag.String("p", "8000", "The port the server will listen on")
+	argMongo := flag.String("m", secrets.Mongo(), "The MongoDB address URL in the format: mongodb://user:password@yourdatabase.com:12345/dbname")
+	flag.Parse()
+
+	d := db.Init(*argMongo)
 	defer d.Close()
 	ctrl := ctrl.NewController(d)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/listusers", ctrl.ListAllUsers)  // List all users.
-	mux.HandleFunc("/listmsg", ctrl.ListAllMessages) // List all messages.
-	mux.HandleFunc("/users", ctrl.NewUser)           // New user.
-	mux.HandleFunc("/users/", ctrl.GetUserByID)      // Get user by id.
-	mux.HandleFunc("/messages", ctrl.MessageRouter)  // POST: New message. GET: Get messages for user.
-	mux.HandleFunc("/message/", ctrl.GetMessage)     // Get message by id.
 
-	if err := http.ListenAndServe(":8000", mux); err != nil {
+	// Lists all users. Not on spec; added to make development easier.
+	mux.HandleFunc("/listusers", ctrl.ListAllUsers)
+
+	// Lists all messages. Not on spec; added to make development easier.
+	mux.HandleFunc("/listmsg", ctrl.ListAllMessages)
+
+	// New user.
+	mux.HandleFunc("/users", ctrl.NewUser)
+
+	// Get user by id.
+	mux.HandleFunc("/users/", ctrl.GetUserByID)
+
+	// POST: New message. GET: Get messages for user.
+	mux.HandleFunc("/messages", ctrl.MessageRouter)
+
+	// Get message by id.
+	mux.HandleFunc("/message/", ctrl.GetMessage)
+
+	if err := http.ListenAndServe(":"+*argPort, mux); err != nil {
 		log.Fatal(err)
 	}
 

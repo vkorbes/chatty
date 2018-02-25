@@ -4,15 +4,14 @@ import (
 	"errors"
 	"time"
 
-	"github.com/ellenkorbes/chatty/secrets"
 	"github.com/ellenkorbes/chatty/types"
 	mgo "gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 )
 
 // Init opens a connection to the database. Hostname, post, user, and password must be supplied by package secrets.
-func Init() *mgo.Session {
-	session, err := mgo.Dial(secrets.Mongo())
+func Init(arg string) *mgo.Session {
+	session, err := mgo.Dial(arg)
 	if err != nil {
 		panic(err)
 	}

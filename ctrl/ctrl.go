@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/ellenkorbes/chatty/db"
@@ -40,7 +41,7 @@ func (c *Controller) ListAllMessages(response http.ResponseWriter, request *http
 func (c *Controller) ListAll(response http.ResponseWriter, request *http.Request, items interface{}) {
 	err := db.GetAll(c.DB, items)
 	if err != nil {
-		Error(response, request, http.StatusInternalServerError, ErrorMessage["db.AddUser"])
+		Error(response, request, http.StatusInternalServerError, "c.ListAll: "+ErrorMessage["db.GetAll"])
 		return
 	}
 	response.Header().Set("Content-Type", "application/json")
@@ -75,7 +76,7 @@ func (c *Controller) NewUser(response http.ResponseWriter, request *http.Request
 	newUser.UpdatedAt = time.Now()
 	unique, err := db.IsUnique(c.DB, newUser)
 	if err != nil {
-		Error(response, request, http.StatusInternalServerError, ErrorMessage["db.AddUser"])
+		Error(response, request, http.StatusInternalServerError, "c.NewUser:"+ErrorMessage["db.IsUnique"])
 		return
 	}
 	if !unique {
@@ -84,12 +85,12 @@ func (c *Controller) NewUser(response http.ResponseWriter, request *http.Request
 	}
 	err = db.Add(c.DB, &newUser)
 	if err != nil {
-		Error(response, request, http.StatusInternalServerError, ErrorMessage["db.AddUser"])
+		Error(response, request, http.StatusInternalServerError, "c.NewUser:"+ErrorMessage["db.Add"])
 		return
 	}
 	check, err := db.GetUser(c.DB, newUser.Username)
 	if err != nil {
-		Error(response, request, http.StatusInternalServerError, ErrorMessage["db.GetUser"])
+		Error(response, request, http.StatusInternalServerError, "c.NewUser:"+ErrorMessage["db.GetUser"])
 		return
 	}
 	response.Header().Set("Content-Type", "application/json")
@@ -110,7 +111,7 @@ func (c *Controller) GetUserByUsername(response http.ResponseWriter, request *ht
 			Error(response, request, http.StatusNotFound, ErrorMessage["UserNotFound"])
 			return
 		} else {
-			Error(response, request, http.StatusInternalServerError, ErrorMessage["db.GetUser"])
+			Error(response, request, http.StatusInternalServerError, "c.GetUserByUsername:"+ErrorMessage["db.GetUser"])
 			return
 		}
 	}
@@ -136,7 +137,7 @@ func (c *Controller) GetUserByID(response http.ResponseWriter, request *http.Req
 			Error(response, request, http.StatusNotFound, ErrorMessage["UserNotFound"])
 			return
 		} else {
-			Error(response, request, http.StatusInternalServerError, ErrorMessage["dbGetUserByID"])
+			Error(response, request, http.StatusInternalServerError, "c.GetUserByID:"+ErrorMessage["db.Get"])
 			return
 		}
 	}
@@ -153,18 +154,21 @@ func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Requ
 		Error(response, request, http.StatusBadRequest, ErrorMessage["BadJSON"])
 		return
 	}
-	// newMessage.Body maxLength: 280
-	if newMessage.To == "" || newMessage.From == "" || newMessage.Body == "" {
+	if newMessage.To == "" || newMessage.From == "" || newMessage.Body == "" || len(newMessage.Body) > 280 {
 		errors := ""
-		switch {
-		case newMessage.To == "":
-			errors += "The message sender is empty. "
-		case newMessage.From == "":
-			errors += "The message recipient is empty. "
-		case newMessage.Body == "":
-			errors += "The message has no content. "
+		if newMessage.To == "" {
+			errors += ErrorMessage["EmptyTo"]
 		}
-		Error(response, request, http.StatusBadRequest, errors)
+		if newMessage.From == "" {
+			errors += ErrorMessage["EmptyFrom"]
+		}
+		switch {
+		case newMessage.Body == "":
+			errors += ErrorMessage["EmptyBody"]
+		case len(newMessage.Body) > 280:
+			errors += ErrorMessage["LengthExceeded"]
+		}
+		Error(response, request, http.StatusBadRequest, strings.TrimSpace(errors))
 		return
 	}
 	sender, err := db.GetUser(c.DB, newMessage.From)
@@ -194,13 +198,13 @@ func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Requ
 	newMessage.SentAt = time.Now()
 	db.Add(c.DB, &newMessage)
 	if err != nil {
-		Error(response, request, http.StatusInternalServerError, ErrorMessage["db.AddMessage"])
+		Error(response, request, http.StatusInternalServerError, "c.NewMessage:"+ErrorMessage["db.Add"])
 		return
 	}
 	check := types.Message{}
 	err = db.Get(c.DB, newMessage.ID, &check)
 	if err != nil {
-		Error(response, request, http.StatusInternalServerError, ErrorMessage["db.GetMessage"])
+		Error(response, request, http.StatusInternalServerError, "c.NewMessage:"+ErrorMessage["db.Get"])
 		return
 	}
 	err = db.DecreaseBudget(c.DB, sender)
@@ -219,9 +223,19 @@ func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Requ
 // GetMessages gets all messages addressed to a specific user.
 func (c *Controller) GetMessages(response http.ResponseWriter, request *http.Request) {
 	user := request.URL.Query().Get("to")
+	_, err := db.GetUser(c.DB, user)
+	if err != nil {
+		if err.Error() == "not found" {
+			Error(response, request, http.StatusNotFound, ErrorMessage["UserNotFound"])
+			return
+		} else {
+			Error(response, request, http.StatusInternalServerError, "c.GetMessages:"+ErrorMessage["UnexpectedRecipient"])
+			return
+		}
+	}
 	messages, err := db.GetMessagesByUser(c.DB, user)
 	if err != nil {
-		Error(response, request, http.StatusInternalServerError, ErrorMessage["db.GetMessagesByUser"])
+		Error(response, request, http.StatusInternalServerError, "c.GetMessages:"+ErrorMessage["db.GetMessagesByUser"])
 		return
 	}
 	response.Header().Set("Content-Type", "application/json")
@@ -246,7 +260,7 @@ func (c *Controller) GetMessage(response http.ResponseWriter, request *http.Requ
 			Error(response, request, http.StatusNotFound, ErrorMessage["MessageNotFound"])
 			return
 		} else {
-			Error(response, request, http.StatusInternalServerError, ErrorMessage["db.GetMessagesByID"])
+			Error(response, request, http.StatusInternalServerError, "c.GetMessage:"+ErrorMessage["db.Get"])
 			return
 		}
 	}
