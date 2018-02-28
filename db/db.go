@@ -9,11 +9,12 @@ import (
 	"gopkg.in/mgo.v2/bson"
 )
 
+// DBObject carries the MongoDB session and serves to inject all the code below.
 type DBObject struct {
 	Session *mgo.Session
 }
 
-// Init opens a connection to the database. Hostname, post, user, and password must be supplied by package secrets.
+// NewSession opens a connection to the database.
 func NewSession(arg string) DBObject {
 	session, err := mgo.Dial(arg)
 	if err != nil {

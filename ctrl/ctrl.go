@@ -13,6 +13,7 @@ import (
 	"gopkg.in/mgo.v2/bson"
 )
 
+// DBInterface allows us to inject as our DB package anything that fulfills this interface.
 type DBInterface interface {
 	Add(interface{}) error
 	Get(bson.ObjectId, interface{}) error
@@ -45,7 +46,7 @@ func (c *Controller) ListAllMessages(response http.ResponseWriter, request *http
 	c.ListAll(response, request, &[]types.Message{})
 }
 
-// ListAll lists all items of the interface{} type. Valid types are *[]types.User and *[]types.Message.
+// ListAll lists all items of type *[]types.User or *[]types.Message.
 func (c *Controller) ListAll(response http.ResponseWriter, request *http.Request, items interface{}) {
 	err := c.DB.GetAll(items)
 	if err != nil {
@@ -69,6 +70,7 @@ func (c *Controller) NewUser(response http.ResponseWriter, request *http.Request
 		Error(response, request, http.StatusBadRequest, ErrorMessage["BadJSON"])
 		return
 	}
+	// Only lowercase alphanumericals, dots, and hyphens.
 	r, _ := regexp.Compile(`^[a-z][a-z_\.\-0-9]*$`)
 	if !r.MatchString(newUser.Username) {
 		Error(response, request, http.StatusBadRequest, ErrorMessage["BadUsername"])
@@ -78,6 +80,7 @@ func (c *Controller) NewUser(response http.ResponseWriter, request *http.Request
 		Error(response, request, http.StatusBadRequest, ErrorMessage["BlankUsername"])
 		return
 	}
+	// Creating the new object.
 	newUser.ID = bson.NewObjectId()
 	newUser.Budget = 10
 	newUser.CreatedAt = time.Now()
@@ -91,19 +94,15 @@ func (c *Controller) NewUser(response http.ResponseWriter, request *http.Request
 		Error(response, request, http.StatusConflict, ErrorMessage["TakenUsername"])
 		return
 	}
+	// And off it goes.
 	err = c.DB.Add(&newUser)
 	if err != nil {
 		Error(response, request, http.StatusInternalServerError, "c.NewUser:"+ErrorMessage["db.Add"])
 		return
 	}
-	check, err := c.DB.GetUser(newUser.Username)
-	if err != nil {
-		Error(response, request, http.StatusInternalServerError, "c.NewUser:"+ErrorMessage["db.GetUser"])
-		return
-	}
 	response.Header().Set("Content-Type", "application/json")
 	response.WriteHeader(http.StatusCreated)
-	json.NewEncoder(response).Encode(&check)
+	json.NewEncoder(response).Encode(&newUser)
 }
 
 // GetUserByUsername returns a full User object based on the username.
@@ -112,6 +111,7 @@ func (c *Controller) GetUserByUsername(response http.ResponseWriter, request *ht
 		Error(response, request, http.StatusMethodNotAllowed, ErrorMessage["PleaseGET"])
 		return
 	}
+	// Gets the bit of the URL after the last "/"
 	user := path.Base(request.URL.Path)
 	query, err := c.DB.GetUser(user)
 	if err != nil {
@@ -133,12 +133,14 @@ func (c *Controller) GetUserByID(response http.ResponseWriter, request *http.Req
 		Error(response, request, http.StatusMethodNotAllowed, ErrorMessage["PleaseGET"])
 		return
 	}
+	// Gets the bit of the URL after the last "/"
 	id := path.Base(request.URL.Path)
 	if !bson.IsObjectIdHex(id) {
 		Error(response, request, http.StatusBadRequest, ErrorMessage["BadObjectID"])
 		return
 	}
 	query := types.User{}
+	// Get user.
 	err := c.DB.Get(bson.ObjectIdHex(id), &query)
 	if err != nil {
 		if err.Error() == "not found" {
@@ -162,6 +164,7 @@ func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Requ
 		Error(response, request, http.StatusBadRequest, ErrorMessage["BadJSON"])
 		return
 	}
+	// From, To, and Body fields can't be empty. Body can't be larger than 280 characters. We're lumping all of these checks together *before* making a DB call. Because we're cheap.
 	if newMessage.To == "" || newMessage.From == "" || newMessage.Body == "" || len(newMessage.Body) > 280 {
 		errors := ""
 		if newMessage.To == "" {
@@ -179,6 +182,7 @@ func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Requ
 		Error(response, request, http.StatusBadRequest, strings.TrimSpace(errors))
 		return
 	}
+	// Hey database, is the sender real or just an imaginary friend? Habout the recipient?
 	sender, err := c.DB.GetUser(newMessage.From)
 	if err != nil {
 		if err.Error() == "not found" {
@@ -189,6 +193,7 @@ func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Requ
 			return
 		}
 	} else if sender.Budget < 1 {
+		// No cheapskates here!
 		Error(response, request, http.StatusForbidden, ErrorMessage["BudgetExceeded"])
 		return
 	}
@@ -202,19 +207,16 @@ func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Requ
 			return
 		}
 	}
+	// Filling in the rest of the field.
 	newMessage.ID = bson.NewObjectId()
 	newMessage.SentAt = time.Now()
+	// And boom! New message!
 	c.DB.Add(&newMessage)
 	if err != nil {
 		Error(response, request, http.StatusInternalServerError, "c.NewMessage:"+ErrorMessage["db.Add"])
 		return
 	}
-	// check := types.Message{}
-	// err = c.DB.Get(newMessage.ID, &check)
-	// if err != nil {
-	// 	Error(response, request, http.StatusInternalServerError, "c.NewMessage:"+ErrorMessage["db.Get"])
-	// 	return
-	// }
+	// We charge the sender only after checking that there were no errors in adding the message.
 	err = c.DB.DecreaseBudget(sender)
 	if err != nil {
 		if err.Error() == "budget discrepancy" {
@@ -230,6 +232,7 @@ func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Requ
 
 // GetMessages gets all messages addressed to a specific user.
 func (c *Controller) GetMessages(response http.ResponseWriter, request *http.Request) {
+	// Hey, look, a param!
 	user := request.URL.Query().Get("to")
 	_, err := c.DB.GetUser(user)
 	if err != nil {
@@ -256,6 +259,7 @@ func (c *Controller) GetMessage(response http.ResponseWriter, request *http.Requ
 		Error(response, request, http.StatusMethodNotAllowed, ErrorMessage["PleaseGET"])
 		return
 	}
+	// Do I need to keep writing these comments? I'll just assume you got the hang of it by now.
 	id := path.Base(request.URL.Path)
 	if !bson.IsObjectIdHex(id) {
 		Error(response, request, http.StatusBadRequest, ErrorMessage["BadObjectID"])

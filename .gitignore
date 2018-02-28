@@ -1,4 +1,1 @@
-secrets/secrets.go
-.gitignore
-notes.txt
-README_old.md
+secret.txt

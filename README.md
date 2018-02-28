@@ -3,7 +3,7 @@ This API will be used to control users exchanging messages between each other.
 The command takes two optional arguments:
 
 - `-p` Is the the port number. Default is 8000.
-- `-m` Is the MongoDB URL. Default is whatever you set in the secrets package.
+- `-m` Is the MongoDB URL. Default is whatever's in your secret.txt file.
 
 Here are some things you can do with this app:
 
