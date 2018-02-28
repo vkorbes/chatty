@@ -9,19 +9,27 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ellenkorbes/chatty/db"
 	"github.com/ellenkorbes/chatty/types"
-	mgo "gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 )
 
+type DBInterface interface {
+	Add(interface{}) error
+	Get(bson.ObjectId, interface{}) error
+	GetAll(interface{}) error
+	GetUser(string) (types.User, error)
+	DecreaseBudget(types.User) error
+	GetMessagesByUser(string) (types.Messages, error)
+	IsUnique(types.User) (bool, error)
+}
+
 // Controller is... pretty simple, just look at it.
 type Controller struct {
-	DB *mgo.Session
+	DB DBInterface
 }
 
 // NewController returns a new Controller.
-func NewController(db *mgo.Session) *Controller {
+func NewController(db DBInterface) *Controller {
 	return &Controller{
 		DB: db,
 	}
@@ -39,7 +47,7 @@ func (c *Controller) ListAllMessages(response http.ResponseWriter, request *http
 
 // ListAll lists all items of the interface{} type. Valid types are *[]types.User and *[]types.Message.
 func (c *Controller) ListAll(response http.ResponseWriter, request *http.Request, items interface{}) {
-	err := db.GetAll(c.DB, items)
+	err := c.DB.GetAll(items)
 	if err != nil {
 		Error(response, request, http.StatusInternalServerError, "c.ListAll: "+ErrorMessage["db.GetAll"])
 		return
@@ -74,7 +82,7 @@ func (c *Controller) NewUser(response http.ResponseWriter, request *http.Request
 	newUser.Budget = 10
 	newUser.CreatedAt = time.Now()
 	newUser.UpdatedAt = time.Now()
-	unique, err := db.IsUnique(c.DB, newUser)
+	unique, err := c.DB.IsUnique(newUser)
 	if err != nil {
 		Error(response, request, http.StatusInternalServerError, "c.NewUser:"+ErrorMessage["db.IsUnique"])
 		return
@@ -83,12 +91,12 @@ func (c *Controller) NewUser(response http.ResponseWriter, request *http.Request
 		Error(response, request, http.StatusConflict, ErrorMessage["TakenUsername"])
 		return
 	}
-	err = db.Add(c.DB, &newUser)
+	err = c.DB.Add(&newUser)
 	if err != nil {
 		Error(response, request, http.StatusInternalServerError, "c.NewUser:"+ErrorMessage["db.Add"])
 		return
 	}
-	check, err := db.GetUser(c.DB, newUser.Username)
+	check, err := c.DB.GetUser(newUser.Username)
 	if err != nil {
 		Error(response, request, http.StatusInternalServerError, "c.NewUser:"+ErrorMessage["db.GetUser"])
 		return
@@ -105,7 +113,7 @@ func (c *Controller) GetUserByUsername(response http.ResponseWriter, request *ht
 		return
 	}
 	user := path.Base(request.URL.Path)
-	query, err := db.GetUser(c.DB, user)
+	query, err := c.DB.GetUser(user)
 	if err != nil {
 		if err.Error() == "not found" {
 			Error(response, request, http.StatusNotFound, ErrorMessage["UserNotFound"])
@@ -131,7 +139,7 @@ func (c *Controller) GetUserByID(response http.ResponseWriter, request *http.Req
 		return
 	}
 	query := types.User{}
-	err := db.Get(c.DB, bson.ObjectIdHex(id), &query)
+	err := c.DB.Get(bson.ObjectIdHex(id), &query)
 	if err != nil {
 		if err.Error() == "not found" {
 			Error(response, request, http.StatusNotFound, ErrorMessage["UserNotFound"])
@@ -171,7 +179,7 @@ func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Requ
 		Error(response, request, http.StatusBadRequest, strings.TrimSpace(errors))
 		return
 	}
-	sender, err := db.GetUser(c.DB, newMessage.From)
+	sender, err := c.DB.GetUser(newMessage.From)
 	if err != nil {
 		if err.Error() == "not found" {
 			Error(response, request, http.StatusNotFound, ErrorMessage["SenderNotFound"])
@@ -184,7 +192,7 @@ func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Requ
 		Error(response, request, http.StatusForbidden, ErrorMessage["BudgetExceeded"])
 		return
 	}
-	_, err = db.GetUser(c.DB, newMessage.To)
+	_, err = c.DB.GetUser(newMessage.To)
 	if err != nil {
 		if err.Error() == "not found" {
 			Error(response, request, http.StatusNotFound, ErrorMessage["RecipientNotFound"])
@@ -196,18 +204,18 @@ func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Requ
 	}
 	newMessage.ID = bson.NewObjectId()
 	newMessage.SentAt = time.Now()
-	db.Add(c.DB, &newMessage)
+	c.DB.Add(&newMessage)
 	if err != nil {
 		Error(response, request, http.StatusInternalServerError, "c.NewMessage:"+ErrorMessage["db.Add"])
 		return
 	}
-	check := types.Message{}
-	err = db.Get(c.DB, newMessage.ID, &check)
-	if err != nil {
-		Error(response, request, http.StatusInternalServerError, "c.NewMessage:"+ErrorMessage["db.Get"])
-		return
-	}
-	err = db.DecreaseBudget(c.DB, sender)
+	// check := types.Message{}
+	// err = c.DB.Get(newMessage.ID, &check)
+	// if err != nil {
+	// 	Error(response, request, http.StatusInternalServerError, "c.NewMessage:"+ErrorMessage["db.Get"])
+	// 	return
+	// }
+	err = c.DB.DecreaseBudget(sender)
 	if err != nil {
 		if err.Error() == "budget discrepancy" {
 			log.Println("Budget discrepancy.", err)
@@ -217,13 +225,13 @@ func (c *Controller) NewMessage(response http.ResponseWriter, request *http.Requ
 	}
 	response.Header().Set("Content-Type", "application/json")
 	response.WriteHeader(http.StatusCreated)
-	json.NewEncoder(response).Encode(&check)
+	json.NewEncoder(response).Encode(&newMessage)
 }
 
 // GetMessages gets all messages addressed to a specific user.
 func (c *Controller) GetMessages(response http.ResponseWriter, request *http.Request) {
 	user := request.URL.Query().Get("to")
-	_, err := db.GetUser(c.DB, user)
+	_, err := c.DB.GetUser(user)
 	if err != nil {
 		if err.Error() == "not found" {
 			Error(response, request, http.StatusNotFound, ErrorMessage["UserNotFound"])
@@ -233,7 +241,7 @@ func (c *Controller) GetMessages(response http.ResponseWriter, request *http.Req
 			return
 		}
 	}
-	messages, err := db.GetMessagesByUser(c.DB, user)
+	messages, err := c.DB.GetMessagesByUser(user)
 	if err != nil {
 		Error(response, request, http.StatusInternalServerError, "c.GetMessages:"+ErrorMessage["db.GetMessagesByUser"])
 		return
@@ -254,7 +262,7 @@ func (c *Controller) GetMessage(response http.ResponseWriter, request *http.Requ
 		return
 	}
 	query := types.Message{}
-	err := db.Get(c.DB, bson.ObjectIdHex(id), &query)
+	err := c.DB.Get(bson.ObjectIdHex(id), &query)
 	if err != nil {
 		if err.Error() == "not found" {
 			Error(response, request, http.StatusNotFound, ErrorMessage["MessageNotFound"])

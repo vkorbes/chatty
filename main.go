@@ -7,6 +7,7 @@ import (
 
 	"github.com/ellenkorbes/chatty/ctrl"
 	"github.com/ellenkorbes/chatty/db"
+	// db "github.com/ellenkorbes/chatty/nodb"
 	"github.com/ellenkorbes/chatty/secrets"
 )
 
@@ -16,8 +17,8 @@ func main() {
 	argMongo := flag.String("m", secrets.Mongo(), "The MongoDB address URL in the format: mongodb://user:password@yourdatabase.com:12345/dbname")
 	flag.Parse()
 
-	d := db.Init(*argMongo)
-	defer d.Close()
+	d := db.NewSession(*argMongo)
+	defer d.Session.Close()
 	ctrl := ctrl.NewController(d)
 	mux := http.NewServeMux()
 
