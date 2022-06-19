@@ -1,3 +1,5 @@
+(This was a job interview exercise a billion years ago.)
+
 This API will be used to control users exchanging messages between each other.
 
 The command takes two optional arguments:
